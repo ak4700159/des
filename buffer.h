@@ -19,7 +19,7 @@ void init_buffer(Buffer* buffer) {
 
 void push_buffer(Buffer* buffer, uint8_t data) {
     if(buffer->size == buffer->capacity) {
-        buffer->capacity *= 2;
+        buffer->capacity *= 8;
         buffer->data = (uint8_t*)realloc(buffer->data, sizeof(uint8_t) * buffer->capacity);
         if(buffer->data == NULL) {
             printf("realloc buffer data error");
