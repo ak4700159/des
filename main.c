@@ -8,7 +8,10 @@
 
 	* 사용하는 데이터타입 : uint8_t 사용 -> 1바이트 크기의 양의 정수 = unsigned char형과 동일
 		기본적으로 아스키코드로 인코딩된 파일 속 문자 하나는 0과 255 사이 값을 가진다.
-		그래서 우리는 char형(-128과 127 사이값)을 사용하는 것이 아니라 unsigned char형을 사용해 안정적인 형변환.
+		그래서 파일 출력값에 대해 char형(-128과 127 사이값)을 사용하는 것이 아니라 unsigned char형을 사용해 안정적인 형변환.
+
+	* 알고리즘 진행 과정에서 비트를 확장하고 축소하는 과정 때문에 uint8_t 타입만 사용하기 불편한 시점이 있음
+		그래서 uint32_t = unsigned int 형으로 한꺼번에 값을 담아 비트 단위 연산을 진행한다.
 
 	* 암호 프로그램 설명
 		1번(encrypt plaintext) 입력 시. 사용자로부터 입력 받은 평문 파일의 절대경로를 참조해 암호 파일 생성
@@ -127,25 +130,22 @@ void menu() {
 	printf("Input num : ");
 }
 
-// in : 저장되어 있는 평문 파일 경로
-// out : 저장될 암호 파일 경로 
+// in : 저장되어 있는 평문 파일 경로, out : 저장될 암호 파일 경로 
 void encrypt_plaintext_by_ECB(const char* in, const char* out) {
 	Buffer* buffer = set_buffer(in);
 	uint8_t* key = generate_key();
-	uint8_t** round_key = generate_round_key(key);
 	printf("Record your key : "); pinrt_uint8(key, false);
 	// 버퍼에 담긴 데이터를 알고리즘에 전달
 	// 8바이트씩 디코딩 함수에 전달해야된다.(패딩처리를 했기 때문에 가능)
-	// for(int i = 0; i < buffer->size; i+=8) {
-	// 	encode_by_des(&(buffer->data[i]), key);
-	// }	
-	// save_file(out, buffer);	
+	for(int i = 0; i < buffer->size; i+=8) {
+		encode(&(buffer->data[i]), key);
+	}	
+	save_file(out, buffer);	
 	close_buffer(buffer);
 	free(key);
 }
 
-// in : 저장되어 있는 암호 파일 경로
-// out : 저장될 평문 파일 경로 
+// in : 저장되어 있는 암호 파일 경로, out : 저장될 평문 파일 경로 
 void decrypt_ciphertext_by_ECB(const char* in, const char* out) {
 	uint8_t* key = read_key();
 	pinrt_uint8(key, false);
@@ -244,3 +244,5 @@ uint8_t* read_key() {
 	}
 	return key;
 }
+
+
