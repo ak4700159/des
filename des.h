@@ -2,6 +2,8 @@
 #define __DES_H__
 #include <stdint.h>
 #include <time.h>
+#include <stdbool.h>
+#include <memory.h>
 #include "constant.h"
 #include "buffer.h"
 
@@ -45,31 +47,51 @@ void permute_final(uint8_t* input) {
 
 }
 
-
-void encode_by_des(uint8_t* input, uint8_t* key) {
+// 64비트 데이터와 각 라운드에서 xor할 48비트 key(패리티 비트 드랍, P-Box 이용 축약) 16개가 입력
+void encode_by_des(uint8_t* input, uint8_t** key) {
     permute_init(input);
 
     // 총 16번의 라운드
     for(int r = 0; r < 16; r++) {
+        // 매 라운드마다 32비트 단위로 바뀐다.
+        if(r % 2 == 0) {
+            uint8_t* left = input;
+            uint8_t* right = input+4;
+        } else {
+            uint8_t* left = input+4;
+            uint8_t* right = input;            
+        }
+
 
     }
 
     permute_final(input);
 }
 
-uint8_t* decode_by_des(uint8_t* input) {
-    uint8_t result = 0x00;
+void decode_by_des(uint8_t* input, uint8_t** key) {
+
 }
 
+void round() {}
 
+void f() {
 
-void des_round() {};
+}
 
-void xor_key() {};
+void xor() {}
 
-void expansion() {};
+void expansion() {}
 
-void straight() {};
+void straight() {}
+
+// ======================================== key algorithm ========================================
+uint8_t make_parity_byte(uint8_t);
+uint8_t** generate_round_keys(uint8_t*);
+uint8_t* generate_round_key(uint8_t*);
+uint8_t* generate_key();
+void drop_parity_bit(uint8_t*);
+void shift(uint8_t*, int);
+void compress(uint8_t*);
 
 // 홀수 패리티 비트 생성
 // data = (0XXX XXXX), 0 ~ 127 사이의 값을 가짐
@@ -88,6 +110,23 @@ uint8_t make_parity_byte(uint8_t data) {
     return data << 1 | parity; 
 }
 
+// 16개의 48비트 라운드키를 생성 
+uint8_t** generate_round_keys(uint8_t* key){
+    uint8_t** round_keys = (uint8_t**)malloc(sizeof(uint8_t*) * 16);
+    drop_parity_bit(key);
+    
+    for(int i = 0; i < 16; i++) {
+        // 라운드 키 생성 알고리즘
+        // 1. 28 비트씩 왼쪽, 오른쪽 분할
+        // 2. 쉬프팅
+        // 3. 압축
+        
+
+    }
+    return round_keys;
+}
+
+
 
 // 키 생성
 uint8_t* generate_key() {
@@ -101,21 +140,21 @@ uint8_t* generate_key() {
     }
     printf("\n");
     return key;
-};
-
+}
 
 // 패리티 비트 제거
-void drop_parity_bit() {
+void drop_parity_bit(uint8_t* key) {
 
-};
+}
 
 // 1, 2, 9, 16 에서만 shift 두 번 
-void shift(int round) {
+void shift(uint8_t* key, int round) {
 
-};
+}
 
-
-void compress_key()		{};
-
+// key 축약
+void compress(uint8_t* key) {
+    
+}
 
 #endif

@@ -8,7 +8,7 @@
 
 	* 사용하는 데이터타입 : uint8_t 사용 -> 1바이트 크기의 양의 정수 = unsigned char형과 동일
 		기본적으로 아스키코드로 인코딩된 파일 속 문자 하나는 0과 255 사이 값을 가진다.
-		그래서 우리는 char형(-128과 127 사이값)을 사용하는 것이 아니라 unsigned char형을 사용해 안정적인 형변환을 시도한다.
+		그래서 우리는 char형(-128과 127 사이값)을 사용하는 것이 아니라 unsigned char형을 사용해 안정적인 형변환.
 
 	* 암호 프로그램 설명
 		1번(encrypt plaintext) 입력 시. 사용자로부터 입력 받은 평문 파일의 절대경로를 참조해 암호 파일 생성
@@ -28,7 +28,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h> 
 #include <memory.h>
+#include <stdbool.h>
 #include "buffer.h"
 #include "des.h"
 
@@ -51,7 +53,7 @@ void execute_des_pipeline(const char*, const char*);
 
 Buffer* set_buffer(const char*);
 void save_file(const char*, Buffer*);
-void pinrt_hex_from_uint8(uint8_t*);
+void pinrt_uint8(uint8_t*, bool);
 uint8_t* read_key();
 
 int main(int argc, char* argv[]) {
@@ -105,7 +107,7 @@ void program() {
 				execute_des_pipeline(file_path1, file_path2); break;
 				
 			default:
-				printf("Wrong number, please select 1~5\n"); break;
+				printf("Wrong Number, please select 1~5\n"); break;
 		}
 		memset(file_path1, 0, sizeof(char) * MAX_BUFFER_SIZE);
 		memset(file_path2, 0, sizeof(char) * MAX_BUFFER_SIZE);
@@ -125,25 +127,33 @@ void menu() {
 	printf("Input num : ");
 }
 
-// in : 평문 파일 경로
-// out : 암호 파일 경로 
+// in : 저장되어 있는 평문 파일 경로
+// out : 저장될 암호 파일 경로 
 void encrypt_plaintext_by_ECB(const char* in, const char* out) {
 	Buffer* buffer = set_buffer(in);
 	uint8_t* key = generate_key();
-	printf("Record your key :"); pinrt_hex_from_uint8(key);
+	uint8_t** round_key = generate_round_key(key);
+	printf("Record your key : "); pinrt_uint8(key, false);
 	// 버퍼에 담긴 데이터를 알고리즘에 전달
 	// 8바이트씩 디코딩 함수에 전달해야된다.(패딩처리를 했기 때문에 가능)
 	// for(int i = 0; i < buffer->size; i+=8) {
 	// 	encode_by_des(&(buffer->data[i]), key);
 	// }	
-	save_file(out, buffer);	
+	// save_file(out, buffer);	
 	close_buffer(buffer);
+	free(key);
 }
 
+// in : 저장되어 있는 암호 파일 경로
+// out : 저장될 평문 파일 경로 
 void decrypt_ciphertext_by_ECB(const char* in, const char* out) {
-
+	uint8_t* key = read_key();
+	pinrt_uint8(key, false);
+	
+	free(key);
 }
 
+// 파일 데이터를 버퍼에 저장
 Buffer* set_buffer(const char* file_path) {
 	// 파일 읽기
 	FILE* fp = fopen(file_path, "rb");
@@ -171,6 +181,7 @@ Buffer* set_buffer(const char* file_path) {
 	return buffer;
 }
 
+// 버퍼에 있는 데이터를 파일에 저장
 void save_file(const char* file_path, Buffer* buffer) {
 	FILE* fp = fopen(file_path, "wb");
 	if(fp == NULL) {
@@ -196,13 +207,40 @@ void execute_des_pipeline(const char* encrypt_file_path, const char* decrypt_fil
 }
 
 
-void pinrt_hex_from_uint8(uint8_t* data) {
+void pinrt_uint8(uint8_t* data, bool hex) {
+	printf("\"");
 	for(int i = 0; i < 8; i++) {
-		printf(" %x", data[i]);
+		if(hex) {
+			if(i == 7) {
+				printf("%x", data[i]);
+			} else {
+				printf("%x ", data[i]);
+			}
+		} else {
+			if(i == 7) {
+				printf("%d", data[i]);
+			} else {
+				printf("%d ", data[i]);
+			}			
+		}
+
 	}
-	printf("\n");
+	printf("\"\n");
 }
 
+// 사용자로부터 키를 입력
 uint8_t* read_key() {
-
+	char ckey[MAX_BUFFER_SIZE] = {0, };
+	uint8_t* key = (uint8_t*)malloc(sizeof(uint8_t) * 8);
+	printf("Insert your key : ");
+	fgets(ckey, MAX_BUFFER_SIZE, stdin);
+	char* temp = strtok(ckey, " "); int i = 0;
+	while(temp) {
+		if(temp == NULL) {
+			break;
+		}
+		key[i++] = atoi(temp);
+		temp = strtok(NULL, " ");
+	}
+	return key;
 }
