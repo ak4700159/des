@@ -1,3 +1,6 @@
 *.exe
 .vscode
 .vs
+test.c
+*.pdf
+*.hwp

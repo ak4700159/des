@@ -1,5 +1,7 @@
 #ifndef __DES_H__
 #define __DES_H__
+#include <stdlib.h> 
+#include <stdio.h>
 #include <stdint.h>
 #include <time.h>
 #include <stdbool.h>
@@ -8,25 +10,70 @@
 #include "buffer.h"
 
 // ============ DES Functions ============
-void encode(uint8_t*, uint8_t*);
-void BtoW(uint32_t, uint32_t, uint8_t);
-void WtoB(uint32_t, uint32_t, uint8_t);
-void permute(uint8_t*, bool);
-uint32_t permute_f(uint32_t);
-uint32_t f(uint32_t, uint8_t*);
-uint32_t transfer_sbox(uint8_t*);
+void convert_byte_to_word(uint8_t*, uint32_t*, uint32_t*) ;
+void convert_word_to_byte(uint32_t, uint32_t, uint8_t*);
+void swap(uint32_t *x, uint32_t *y);
 void expansion(uint32_t, uint8_t*);
+void execute_des(uint8_t*, uint8_t*, bool);
+void permute(uint8_t*, bool);
+uint32_t f(uint32_t, uint8_t*);
+uint32_t permute_f(uint32_t);
+uint32_t transfer_sbox(uint8_t*);
 // ============ Key Generation Functions ============
+uint32_t shift(uint32_t, int);
 uint8_t make_parity_byte(uint8_t);
 uint8_t** generate_round_keys(uint8_t*);
 uint8_t* generate_key();
-uint32_t shift(uint32_t, int);
 void compress(uint8_t*);
 void permute_choice1(uint8_t*, uint8_t*);
 void permute_choice2(uint32_t, uint32_t, uint8_t*); 
 void spreate_28bit(uint32_t*, uint32_t*, uint8_t*);
 
-// input : 버퍼 속 데이터, init : init permutation 테이블인지 아닌지(아니면 final)
+
+// DES 알고리즘 실행
+//  input   : 버퍼 속 데이터
+//  key     : 사용자로부터 입력받은 대칭키
+//  encode  : 인코딩 모드 여부, false라면 디코딩 
+void execute_des(uint8_t* input, uint8_t* key, bool encode) {
+    uint32_t left = 0, right = 0;
+    // 64비트 키값을 바탕으로 라운드마다 사용할 키를 먼저 생성
+    uint8_t** round_key = generate_round_keys(key);
+    // 디코딩 시 키를 역순으로 정렬, 페이스텔 구조 때문에 가능
+    if(!encode) {
+        uint8_t* temp;
+        for(int i = 0; i < 8; i++) {
+            temp = round_key[15-i];
+            round_key[15-i] = round_key[i];
+            round_key[i] = temp;
+        }
+    }
+    // 초기 전치
+    permute(input, true);
+    // 입력된 값을 32비트씩 left, right로 분할
+    convert_byte_to_word(input, &left, &right);
+    // 총 16번의 라운드 잔행
+    for(int r = 0; r < 16; r++) {
+        // F 함수 진행 + 매 라운드마다 32비트 단위로 바뀐다.
+        left = left ^ f(right, round_key[r]);
+        // 라운드가 끝날 때마다 스왑, 마지막 라운드에선 스왑 X
+        if (r != 15) {
+            swap(&left, &right);
+        }
+    }
+    // 왼쪽 오른쪽 32비트를 64비트 input으로 병합(엄밀히 말하면 8*8)
+    convert_word_to_byte(left, right, input);
+    // 마지막 전치
+    permute(input, false);
+
+    // 동적 할당 해제
+    for(int i = 0; i < 16; i++) {
+        free(round_key[i]);
+    }
+    free(round_key);
+}
+
+// input    : 버퍼 속 데이터
+// init     : init permutation 테이블인지 아닌지(아니면 final)
 void permute(uint8_t* input, bool init) {
     // 1000 0000 값을 가지는 1바이트로 초기화
     uint8_t index, bit, mask = 0x80;
@@ -56,40 +103,16 @@ void permute(uint8_t* input, bool init) {
     memcpy(input, temp, 8);
 }
 
-void encode(uint8_t* input, uint8_t* key) {
-    uint32_t left, right = 0;
-    // 64비트 키값을 바탕으로 라운드마다 사용할 키를 먼저 생성
-    uint8_t** round_key = generate_round_keys(key);
-    // 초기 전치
-    permute(input, true);
-    // 입력된 값을 32비트씩 left, right로 분할
-    BtoW(input, &left, &right);
-    // 총 16번의 라운드 잔행
-    for(int r = 0; r < 16; r++) {
-        // F 함수 진행 + 매 라운드마다 32비트 단위로 바뀐다.
-        left = left ^ f(right, round_key[r]);
-        // 라운드가 끝날 때마다 스왑.
-        swap(&left, &right);
-    }
-    // 왼쪽 오른쪽 32비트를 64비트 input으로 병합(엄밀히 말하면 8*8)
-    WtoB(left, right, input);
-    // 마지막 전치
-    permute(input, false);
-
-    // 동적 할당 해제
-    for(int i = 0; i < 16; i++) {
-        free(round_key[i]);
-    }
-    free(round_key);
-}
-
+// 라운드 내 f함수
+// right    : 32비트 오른쪽 데이터
+// round_key: 32비트 라운드키
 uint32_t f(uint32_t right, uint8_t* round_key) {
 	int i;
 	uint8_t data[6] = { 0, };
 	uint32_t out;
 
 	expansion(right, data);
-    // 8bit 씩 총 6번 라운드 키와 xor 연산
+    // 48bit 라운드 키와 48bit 오른쪽 데이터 XOR
 	for (i = 0;i<6;i++) {
 		data[i] = data[i] ^ round_key[i];
     }
@@ -98,63 +121,77 @@ uint32_t f(uint32_t right, uint8_t* round_key) {
 }
 
 uint32_t permute_f(uint32_t out) {
-    uint32_t mask = 0x8000;
     uint32_t temp = 0;
     for (int i = 0; i < 32; i++) {
-        if (out & (mask >> (f_permutation_table[i]-1))) {
-            temp |= mask >> (f_permutation_table[i]-1);
+        uint32_t pos = 32 - f_permutation_table[i]; 
+        if (out & ((uint32_t)1 << pos)) {
+            temp |= ((uint32_t)1 << (31 - i));
         }
     }
     return temp;
 }
 
-// 32비트를 48비트로 확장
+// right 32비트를 data 48비트로 확장
+//  data    : uint8_t 6개를 가지는 배열(전부 0으로 초기화되어 있는 상태)
+//  right   : 오른쪽 32비트 데이터 
 void expansion(uint32_t right, uint8_t* data) {
-	int i;
-	uint32_t mask = 0x8000;
-
-	for (i = 0; i < 48; i++) {
-		if (right & (mask >> (e_permuation_table[i] - 1))) {
-			data[i / 8] |= (uint8_t)(0x80 >> (i % 8));
-		}
-	}
+    for (int i = 0; i < 48; i++) {
+        uint32_t pos = 32 - e_permuation_table[i];
+        // 해당 위치의 값이 1이라면 data에도 똑같이 1로 활성화
+        if (right & ((uint32_t)1 << pos)) {
+            // 0x80 = 0b 0100 0000
+            data[i / 8] |= (uint8_t)(0x80 >> (i % 8));
+        }
+    }
 }
 
+// 48bit(8 * 6bit)를 32bit(8 * 4)로 축약.  
 uint32_t transfer_sbox(uint8_t* data) {
 	int i, row, column, shift = 28;
 	uint32_t temp = 0, result = 0, mask = 0x80;
 
-	for (i = 0;i<48;i++) {
-         // 마스크를 씌워 확인 후 temp에 해당 비트 1로 함
+	for (i = 0; i < 48; i++) {
+         // 마스크를 씌워 확인 후 temp에 해당 비트 1로 함당
+         // 즉, temp에 담긴 6비트를 이용해 transfer 
 		if (data[i / 8] & (uint8_t)(mask >> (i % 8))) {
+            // 0x20 == 0b 0010 0000
             temp |= 0x20 >> (i % 6);
         }
 
+        // temp에 6비트가 전부 담긴 경우.
 		if ((i + 1) % 6 == 0) {
-			row = ((temp & 0x20) >> 4) + (temp & 0x01);           // 행 값
-			column = (temp & 0x1E) >> 1;                               // 열 값
-			result += ((uint32_t)S_BOX[i / 6][row][column] << shift);    // 값 더하고 쉬프트(4비트씩)
+            //R----R, 양끝 비트를 추출해 행 인덱스로 사용
+			row = ((temp & 0x20) >> 4) + (temp & 0x01);
+            //-CCCC-, 중간 4비트 추출해 열 인덱스로 사용(0x1E == 0b 0001 1110)
+			column = (temp & 0x1E) >> 1;
+            // i/6 S_BOX의 (row, column) 자리의 값을 shift해 더해준다(사실 OR 연산을 해도 같은 결과)
+			result += ((uint32_t)S_BOX[i / 6][row][column] << shift);
+            // result 끝에서부터 값을 채운다.
 			shift -= 4;
+            // temp 초기화
 			temp = 0;
 		}
 	}
 	return result;
 }
 
+void swap(uint32_t *x, uint32_t *y) {
+    uint32_t t = *x; *x = *y; *y = t;
+}
+
 // data[8] -> left(32bit), right(32bit), Byte -> Word
 // 8 사이즈의 바이너리 배열을 두 개의 32bit인 unsinged int로 치환 
-void BtoW(uint32_t *data, uint32_t *left, uint8_t *right) {
+void convert_byte_to_word(uint8_t *data, uint32_t *left, uint32_t *right) {
     int i;
-
     *left = 0;
     *right = 0;
 
-    // data[0] ~ data[3], 앞 4바이트 → left
+    // data[0] ~ data[3], 앞 4바이트 -> left
     for (i = 0; i < 4; i++) {
         *left = (*left << 8) | data[i];
     }
 
-    // data[4] ~ data[7], 뒤 4바이트 → right
+    // data[4] ~ data[7], 뒤 4바이트 -> right
     for (i = 4; i < 8; i++) {
         *right = (*right << 8) | data[i];
     }
@@ -162,7 +199,7 @@ void BtoW(uint32_t *data, uint32_t *left, uint8_t *right) {
 
 // left(32bit), right(32bit) -> data[8], Word -> Byte
 // 두 개의 unsinged int를 8사이즈의 바이너리 배열로 치환
-void WtoB(uint32_t left, uint32_t right, uint8_t *data) {
+void convert_word_to_byte(uint32_t left, uint32_t right, uint8_t *data) {
     int i;
 
     // left → 앞 4바이트
@@ -198,12 +235,13 @@ uint8_t make_parity_byte(uint8_t data) {
     return data << 1 | parity; 
 }
 
-// 16개의 48비트 라운드키를 생성 
+// 16개의 48비트 라운드키를 생성, 이 과정을 key expanssion이라고도 부름
 uint8_t** generate_round_keys(uint8_t* key){
     uint8_t** round_keys = (uint8_t**)malloc(sizeof(uint8_t*) * 16);
     for (int i = 0; i < 16; i++) {
         round_keys[i] = (uint8_t*)calloc(6, 1);
     }
+    // 첫번째 permuted choice를 지난 결과
     uint8_t choice1_result[7] = { 0, };
     // a와 b는 28비트씩 저장
     uint32_t a, b = 0;
@@ -223,7 +261,7 @@ uint8_t* generate_key() {
     uint8_t* key = (uint8_t*)malloc(sizeof(uint8_t) * 8);
     srand((unsigned)time(NULL));
     for(int i = 0; i < 8; i++) {
-        // 0 ~ 127 사이의 값
+        // 0 ~ 127 사이의 값. 실제로 rand 함수 사용을 권장 X
         uint8_t random = (uint8_t)(rand() % 128);
         key[i] = make_parity_byte(random);
         printf(" %d", random);
@@ -241,74 +279,74 @@ uint32_t shift(uint32_t key, int i) {
 	return key & 0xFFFFFFF;
 }
 
-// PC-1: 64bit key -> 56bit (parity drop)
-void permute_choice1(uint8_t* key, uint8_t* choice1_result) {
-    // key: 8 bytes, choice1_result: 7 bytes(out)
-    const uint8_t MSB = 0x80;
-    memset(choice1_result, 0, 7);
-
-    for (int i = 0; i < 56; i++) {
-        uint8_t src_byte = (key_permutation_table1[i] - 1) / 8;  // 0..7
-        uint8_t src_bit  = (key_permutation_table1[i] - 1) % 8;  // 0..7 (MSB first)
-        if (key[src_byte] & (MSB >> src_bit)) {
-            choice1_result[i / 8] |= (MSB >> (i % 8));
-        }
-    }
-}
-
-// 56bit -> C(28bit), D(28bit)   (MSB-first 시프트 빌드)
+// 56bit -> a(28bit), b(28bit) 분리
 void spreate_28bit(uint32_t* a, uint32_t* b, uint8_t* choice1_result) {
-    const uint8_t MSB = 0x80;
-    *a = 0;
-    *b = 0;
-
-    // build C (bits 0..27)
+    uint8_t mask = 0x80;
+    *a = 0; *b = 0; 
+    // a 값 채우기, 맨 앞의 비트부터 읽으면서 진행한다.
     for (int i = 0; i < 28; i++) {
+        // 비트 자리를 한자리씩 뒤로
         *a <<= 1;
-        if (choice1_result[i / 8] & (MSB >> (i % 8))) {
-            *a |= 1u;
+        if (choice1_result[i / 8] & (mask >> (i % 8))) {
+            *a |= (uint32_t)1;
         }
     }
-
-    // build D (bits 28..55)
+    // b 값 채우기
     for (int i = 28; i < 56; i++) {
         *b <<= 1;
-        if (choice1_result[i / 8] & (MSB >> (i % 8))) {
-            *b |= 1u;
+        if (choice1_result[i / 8] & (mask >> (i % 8))) {
+            *b |= (uint32_t)1;
         }
     }
-    // 상위 4비트 마스킹(안전)
-    *a &= 0x0FFFFFFF;
-    *b &= 0x0FFFFFFF;
+    // 상위 4비트 쓰레기값으로 채우기(사용 X)
+    *a &= 0x0FFFFFFF; *b &= 0x0FFFFFFF;
 }
 
-// PC-2: C||D(56bit) -> 48bit round key (6 bytes)
+// 64bit key -> 56bit로 전치, 이 과정에서 패리티 비트를 제외되고 섞임
+// 위제 있는 전치 코드와 유사
+void permute_choice1(uint8_t* key, uint8_t* choice1_result) {
+    uint8_t mask = 0x80;
+    memset(choice1_result, 0, 7);
+    for (int i = 0; i < 56; i++) {
+        uint8_t index = (key_permutation_table1[i] - 1) / 8; 
+        uint8_t bit  = (key_permutation_table1[i] - 1) % 8; 
+        if (key[index] & (mask >> bit)) {
+            choice1_result[i / 8] |= (mask >> (i % 8));
+        }
+    }
+}
+
+// a+b(56bit) -> 48bit round key (6 bytes) 생성
 void permute_choice2(uint32_t a, uint32_t b, uint8_t* round_key) {
-    // round_key: 6 bytes(out)
-    const uint8_t MSB = 0x80;
+    uint8_t mask = 0x80;
+    // 56bit 버퍼
+    uint8_t temp[7] = {0};
 
-    // 56bit 버퍼(C||D) 구성
-    uint8_t cd[7] = {0};
-
-    // put C (a) : bit 27..0 -> positions 0..27 (MSB-first)
+    // 56bit 버퍼에 값을 채우는 작업
+    // a 맨마지막 비트 자리부터(MSB) -> tmep 0..27 순서로 채운다
     for (int i = 0; i < 28; i++) {
-        uint8_t bit = ( (a >> (27 - i)) & 1u ) ? 1 : 0;
-        if (bit) cd[i / 8] |= (MSB >> (i % 8));
+        uint8_t bit = ( (a >> (27 - i)) & (uint32_t)1 ) ? 1 : 0;
+        if (bit) {
+            temp[i / 8] |= (mask >> (i % 8));
+        }
     }
-    // put D (b) : bit 27..0 -> positions 28..55
+    // b 맨마지막 비트 자리부터(MSB) -> temp 28..55
     for (int i = 0; i < 28; i++) {
-        uint8_t bit = ( (b >> (27 - i)) & 1u ) ? 1 : 0;
+        uint8_t bit = ( (b >> (27 - i)) & (uint32_t)1 ) ? 1 : 0;
         int pos = 28 + i;
-        if (bit) cd[pos / 8] |= (MSB >> (pos % 8));
+        if (bit) {
+            temp[pos / 8] |= (mask >> (pos % 8));
+        }
     }
 
-    // PC-2 적용
+    // 위에서 채워놓은 temp를 바탕으로 round_key 구성
     memset(round_key, 0, 6);
     for (int i = 0; i < 48; i++) {
-        uint8_t src_byte = (key_permutation_table2[i] - 1) / 8;  // 0..6
-        uint8_t src_bit  = (key_permutation_table2[i] - 1) % 8;  // 0..7
-        if (cd[src_byte] & (MSB >> src_bit)) {
-            round_key[i / 8] |= (MSB >> (i % 8));
+        // 위의 permute 코드와 동일한 과정
+        uint8_t index = (key_permutation_table2[i] - 1) / 8;  // 0..6
+        uint8_t bit  = (key_permutation_table2[i] - 1) % 8;  // 0..7
+        if (temp[index] & (mask >> bit)) {
+            round_key[i / 8] |= (mask >> (i % 8));
         }
     }
 }

@@ -72,7 +72,7 @@ const uint8_t key_permutation_table2[48] = {
 };
 
 // 6bit 입력으로 하여 4bit로 축약하기 위해 필요한 테이블
-// 총 48bit(8 * 6bit)를 32bit(8 * 6)로 축약.  
+// 48bit(8 * 6bit)를 32bit(8 * 4)로 축약.  
 const uint8_t S_BOX[8][4][16] = {
     {   // 1
         {14,  4, 13,  1,  2, 15, 11,  8,  3, 10,  6, 12,  5,  9,  0,  7},

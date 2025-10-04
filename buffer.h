@@ -6,6 +6,7 @@
 
 // 파일로부터 읽은 데이터를 남은 구조체
 typedef struct Buffer{
+    int real_size;
 	int size;
 	int capacity;
 	uint8_t* data;
@@ -13,6 +14,7 @@ typedef struct Buffer{
 
 void init_buffer(Buffer* buffer) {
     buffer->size = 0;
+    buffer->real_size = 0;
     buffer->capacity = 1;
     buffer->data = (uint8_t*)malloc(sizeof(uint8_t));
 }
